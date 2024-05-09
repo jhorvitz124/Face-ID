@@ -1,12 +1,34 @@
 import cv2
-import dlib
+import face_recognition
+
+# Initialize variables
+known_face_encodings = []
+known_face_names = []
+
+def load_database():
+    # Load the database from a file
+    global known_face_encodings, known_face_names
+    try:
+        with open("database.txt", "r") as file:
+            lines = file.readlines()
+            for line in lines:
+                name, encoding_str = line.strip().split(":")
+                encoding = [float(x) for x in encoding_str.split(",")]
+                known_face_names.append(name)
+                known_face_encodings.append(encoding)
+    except FileNotFoundError:
+        print("Database file not found.")
+
+def save_database():
+    # Save the database to a file
+    with open("database.txt", "w") as file:
+        for name, encoding in zip(known_face_names, known_face_encodings):
+            encoding_str = ",".join(str(x) for x in encoding)
+            file.write(f"{name}:{encoding_str}\n")
 
 def facial_recognition():
-    # Load the pre-trained face detector
-    detector = dlib.get_frontal_face_detector()
-    
-    # Load the pre-trained face recognition model
-    face_recognizer = dlib.face_recognition_model_v1("shape_predictor_68_face_landmarks.dat")
+    # Load the database
+    load_database()
     
     # Start the webcam
     cap = cv2.VideoCapture(0)
@@ -15,24 +37,33 @@ def facial_recognition():
         # Read the frame from the webcam
         ret, frame = cap.read()
         
-        # Convert the frame to grayscale
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Convert the frame from BGR to RGB
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
-        # Detect faces in the frame
-        faces = detector(gray)
+        # Find all the faces and their encodings in the current frame
+        face_locations = face_recognition.face_locations(rgb_frame)
+        face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
         
         # Iterate over each detected face
-        for face in faces:
-            # Get the facial landmarks
-            landmarks = face_recognizer(frame, face)
+        for face_encoding, face_location in zip(face_encodings, face_locations):
+            # Compare the current face encoding with the known face encodings
+            matches = face_recognition.compare_faces(known_face_encodings, face_encoding)
+            name = "Unknown"
+            
+            # Find the best match
+            face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
+            best_match_index = face_distances.argmin()
+            if matches[best_match_index]:
+                name = known_face_names[best_match_index]
             
             # Draw a rectangle around the face
-            x1, y1, x2, y2 = face.left(), face.top(), face.right(), face.bottom()
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            top, right, bottom, left = face_location
+            cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
             
-            # Draw circles around the facial landmarks
-            for landmark in landmarks.parts():
-                cv2.circle(frame, (landmark.x, landmark.y), 2, (0, 0, 255), -1)
+            # Draw the name of the person
+            cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (0, 255, 0), cv2.FILLED)
+            font = cv2.FONT_HERSHEY_DUPLEX
+            cv2.putText(frame, name, (left + 6, bottom - 6), font, 0.7, (255, 255, 255), 1)
         
         # Display the frame
         cv2.imshow('Facial Recognition', frame)
